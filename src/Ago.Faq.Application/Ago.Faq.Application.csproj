@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Ago.Platform.Kernel (Result<T>, IClock, IIdGenerator) is dependency-free and therefore safe to
+    reference inwards; this module has no product-specific technical port that Ago.Platform.Abstractions
+    would otherwise supply (no cache, no event publisher call site yet - see Ago.Faq.Module's own
+    remarks on why no integration event is published).
+  -->
+  <ItemGroup Condition="'$(AgoFaqDevOverride)' != 'true'">
+    <PackageReference Include="Ago.Platform.Kernel" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(AgoFaqDevOverride)' == 'true'">
+    <ProjectReference Include="..\..\..\ago-platform\src\Ago.Platform.Kernel\Ago.Platform.Kernel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ago.Faq.Domain\Ago.Faq.Domain.csproj" />
+    <!-- Ago.Calendar.Application's own ReplyToModuleTaskHandler references Ago.Calendar.Contracts
+         for its wire-kind constants (ModuleStepKinds) the identical way this project references
+         Ago.Faq.Contracts for FaqStepKinds below - a wire-vocabulary constant is not infrastructure,
+         so Application referencing Contracts stays inside the dependency rule. -->
+    <ProjectReference Include="..\Ago.Faq.Contracts\Ago.Faq.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

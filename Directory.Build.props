@@ -1,0 +1,32 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <!--
+    Dev override (docs/architecture/repositories.md, ago-root): set the AgoFaqDevOverride environment
+    variable to swap Ago.Platform.* PackageReferences for ProjectReferences into a sibling
+    ../ago-platform checkout, for a change that spans this repository and the platform.
+
+      AgoFaqDevOverride=true dotnet build            (bash)
+      $env:AgoFaqDevOverride = 'true'; dotnet build  (PowerShell)
+
+    Named for the repository that honours it, not for what it points at - the same "one name per
+    repository" call ago-calendar's own AgoCalendarDevOverride and ago-chat's own
+    AgoPlatformDevOverride already made: a single shared variable would retarget every product's build
+    in the same shell at once.
+
+    Nothing in this repository changes when the override is used, so a merged branch cannot
+    accidentally keep it switched on - CI never sets the variable and always builds against the
+    published package.
+  -->
+  <PropertyGroup>
+    <AgoFaqDevOverride Condition="'$(AgoFaqDevOverride)' == ''">false</AgoFaqDevOverride>
+  </PropertyGroup>
+
+</Project>

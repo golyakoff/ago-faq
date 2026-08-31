@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Ago.Faq.Infrastructure.Postgres\Ago.Faq.Infrastructure.Postgres.csproj" />
+    <ProjectReference Include="..\..\src\Ago.Faq.Infrastructure.OpenAiCompatible\Ago.Faq.Infrastructure.OpenAiCompatible.csproj" />
+    <!-- The real host, so the module-task and knowledge-base endpoints' status codes and body shapes
+         are proven over a real request rather than inferred from a handler's return value - the same
+         call Ago.Calendar.Integration.Tests' own CalendarApiFactory makes. -->
+    <ProjectReference Include="..\..\src\Ago.Faq.Api\Ago.Faq.Api.csproj" />
+  </ItemGroup>
+
+</Project>

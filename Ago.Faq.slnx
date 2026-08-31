@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Ago.Faq.Api/Ago.Faq.Api.csproj" />
+    <Project Path="src/Ago.Faq.Application/Ago.Faq.Application.csproj" />
+    <Project Path="src/Ago.Faq.Contracts/Ago.Faq.Contracts.csproj" />
+    <Project Path="src/Ago.Faq.Domain/Ago.Faq.Domain.csproj" />
+    <Project Path="src/Ago.Faq.Infrastructure.OpenAiCompatible/Ago.Faq.Infrastructure.OpenAiCompatible.csproj" />
+    <Project Path="src/Ago.Faq.Infrastructure.Postgres/Ago.Faq.Infrastructure.Postgres.csproj" />
+    <Project Path="src/Ago.Faq.Module/Ago.Faq.Module.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Ago.Faq.Application.Tests/Ago.Faq.Application.Tests.csproj" />
+    <Project Path="tests/Ago.Faq.Domain.Tests/Ago.Faq.Domain.Tests.csproj" />
+    <Project Path="tests/Ago.Faq.Integration.Tests/Ago.Faq.Integration.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    No LLM SDK package - the established convention in this codebase (confirmed by every provider
+    client in `ago-chat`, e.g. Ago.Chat.Infrastructure.YandexGpt.YandexGptReplyDraftClient): hand-rolled
+    JSON DTOs plus System.Net.Http.Json over a plain typed HttpClient. No Ago.Platform.Kernel reference:
+    this project implements Ago.Faq.Application.Abstractions.IFaqAnswerGenerator, which needs no
+    IClock/IIdGenerator - the only two Kernel types anything here would otherwise reach for.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <!-- Not called from this class itself (it takes a plain HttpClient from DI), but referenced here
+         rather than only in Ago.Faq.Module - the identical placement ago-chat's own
+         Ago.Chat.Infrastructure.YandexGpt.csproj uses for the same package, so the module project that
+         actually calls AddHttpClient<T> gets it transitively through this project reference. -->
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ago.Faq.Application\Ago.Faq.Application.csproj" />
+  </ItemGroup>
+
+</Project>

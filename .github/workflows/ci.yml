@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+# A branch with a red job here cannot show green - this workflow's name is what a GitHub branch
+# protection rule requires (../ago-root/docs/conventions/git-workflow.md).
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      # This build proves it restores Ago.Platform.* as a real, published .nupkg (nuget.ci.config),
+      # never as a ProjectReference - the same proof ago-calendar's own CI gives for the same reason.
+      # AgoFaqDevOverride is never set here, so the dev-override branch of every .csproj
+      # (Directory.Build.props) stays off; a branch merged with it left on fails exactly here
+      # (repositories.md, ago-root). AGO_PLATFORM_PACKAGES_TOKEN is a repository secret: a classic PAT
+      # scoped to read:packages only (adr/0018, ago-root).
+      - name: Restore
+        run: dotnet restore Ago.Faq.slnx --configfile nuget.ci.config
+        env:
+          AGO_PLATFORM_PACKAGES_TOKEN: ${{ secrets.AGO_PLATFORM_PACKAGES_TOKEN }}
+
+      # Same policy as ago-platform's/ago-chat's/ago-calendar's own CI (17-04, ago-root):
+      # Critical/High fails the build, Moderate/Low is reported but does not.
+      - name: Vulnerability check (dotnet list package --vulnerable)
+        run: |
+          set -euo pipefail
+          dotnet list Ago.Faq.slnx package --vulnerable --include-transitive --no-restore \
+            --configfile nuget.ci.config --format json --output-version 1 > vulnerable.json
+        env:
+          AGO_PLATFORM_PACKAGES_TOKEN: ${{ secrets.AGO_PLATFORM_PACKAGES_TOKEN }}
+
+      - name: Report and gate on Critical/High
+        run: |
+          set -euo pipefail
+          total=$(jq '[ .projects[]?.frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?) | .vulnerabilities[]? ] | length' vulnerable.json)
+          high_critical=$(jq '[ .projects[]?.frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?) | .vulnerabilities[]? | select(.severity=="Critical" or .severity=="High") ] | length' vulnerable.json)
+
+          echo "Vulnerable package references: $total total, $high_critical at Critical/High."
+          jq -r '.projects[] as $p | ($p.frameworks[]? // empty) as $f | (($f.topLevelPackages[]? // empty), ($f.transitivePackages[]? // empty)) | . as $pkg | $pkg.vulnerabilities[]? | "  \($p.path | split("/") | last)  \($pkg.id) \($pkg.resolvedVersion // $pkg.requestedVersion)  \(.severity)  \(.advisoryurl)"' vulnerable.json
+
+          {
+            echo "### Dependency vulnerability check"
+            echo
+            echo "$total vulnerable package reference(s), $high_critical at Critical/High severity."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$high_critical" -gt 0 ]; then
+            echo "::error::$high_critical package(s) at Critical/High severity - failing the build. See the list above."
+            exit 1
+          fi
+
+      # Runs before build so a formatting-only branch fails fast, before paying for compilation.
+      - name: Format check
+        run: dotnet format Ago.Faq.slnx --verify-no-changes
+
+      - name: Build
+        run: dotnet build Ago.Faq.slnx --no-restore -c Release
+
+      # Ago.Faq.Integration.Tests starts a real Postgres through Testcontainers - no extra setup
+      # step, ubuntu-latest ships a running Docker daemon, the same precedent ago-chat's and
+      # ago-calendar's own integration suites already rely on.
+      - name: Test
+        run: >
+          dotnet test Ago.Faq.slnx --no-build -c Release
+          --logger trx --results-directory TestResults
+
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-results
+          path: TestResults

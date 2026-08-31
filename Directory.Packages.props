@@ -1,0 +1,74 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Same reason ago-calendar/ago-chat turn this on: a central pin only binds a project's own
+         *direct* PackageReferences without it, so a transitively-acquired platform package could
+         resolve to a different version than the one named here and produce an assembly-version
+         conflict at compile time. -->
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup Label="AGO Platform">
+    <!-- Versions match ago-calendar's own pins at the time this repository was scaffolded
+         (2026-08-31) - the shared version ago-platform's CI packs every Ago.Platform.* project at,
+         read from that repository's own CHANGELOG.md. -->
+    <PackageVersion Include="Ago.Platform.Kernel" Version="0.18.0" />
+    <PackageVersion Include="Ago.Platform.Hosting" Version="0.18.0" />
+    <!-- Ago.Platform.Abstractions and Ago.Platform.Persistence.Postgres are deliberately absent -
+         this module has no product-specific technical port beyond IFaqAnswerGenerator (its own,
+         declared in Ago.Faq.Application.Abstractions) and no outbox writer (Ago.Faq.Module's own
+         remarks explain why no integration event is published). A version pinned for a package
+         nothing here restores would say something about this repository that is not true - the same
+         discipline ago-calendar's own Directory.Packages.props states for its own unreferenced
+         platform packages. -->
+    <!-- The OpenAI-compatible client's own resilience wrapping (Ago.Faq.Module) is built from this
+         package's Polly building blocks, the same "no fourth hand-rolled Polly setup" call
+         ago-chat's ReplyDraftResiliencePipeline already makes. -->
+    <PackageVersion Include="Ago.Platform.Resilience" Version="0.18.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Persistence">
+    <!-- adr/0004: EF Core owns writes. This module has no read model distinct from its write model
+         (a knowledge-base row and a module-task row are both read by primary key), so Dapper is
+         deliberately absent - the same "not referenced until a project actually needs a read
+         projection" call ago-calendar's own Directory.Packages.props documents for its own Dapper
+         entry, applied here to never needing one at all rather than needing one later. -->
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.11" />
+    <PackageVersion Include="Polly.Core" Version="8.5.2" />
+    <!-- IHttpClientFactory, for the OpenAI-compatible client's typed HttpClient
+         (Ago.Faq.Infrastructure.OpenAiCompatible) - it is what makes that client a seam
+         Ago.Faq.Module can wrap with resilience rather than a `new HttpClient()` nothing can reach. -->
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.11" />
+  </ItemGroup>
+
+  <ItemGroup Label="Authentication">
+    <!-- The knowledge-base console endpoint's JWT bearer validation against the shared Keycloak
+         issuer. Not in the ASP.NET Core shared framework, so it is a real direct dependency. -->
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.11" />
+  </ItemGroup>
+
+  <ItemGroup Label="Testing">
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <!-- Migration tooling only (`dotnet ef migrations add`), PrivateAssets="all" at the reference
+         site so it never ships in a container image. -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <!-- testing.md: a mocked database proves a test compiles and nothing else. Ago.Faq.Integration.Tests
+         starts a real Postgres and applies this repository's own migrations from scratch. -->
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.14.0" />
+    <!-- The module-task and knowledge-base endpoints' own Done-when is an HTTP claim (status codes,
+         body shapes), and only a real request over a real host can prove one. -->
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.11" />
+    <PackageVersion Include="Npgsql" Version="10.0.3" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+</Project>

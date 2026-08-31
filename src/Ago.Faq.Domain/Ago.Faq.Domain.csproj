@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Ago.Platform.Kernel only - the dependency rule allows nothing else in from outside this project
+    (clean-architecture.md, ago-root). This product's own SiteId/FaqModuleTask/KnowledgeBase live here
+    and nowhere else.
+
+    Same PackageReference/ProjectReference dev-override switch every project here that touches the
+    platform uses (repositories.md, Directory.Build.props).
+  -->
+  <ItemGroup Condition="'$(AgoFaqDevOverride)' != 'true'">
+    <PackageReference Include="Ago.Platform.Kernel" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(AgoFaqDevOverride)' == 'true'">
+    <ProjectReference Include="..\..\..\ago-platform\src\Ago.Platform.Kernel\Ago.Platform.Kernel.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Ago.Platform.Persistence.Postgres (UoW, transactions, EF conventions) - this module has no outbox
+    writer of its own (Ago.Faq.Module's own remarks explain why no integration event is published), so
+    unlike Ago.Calendar.Infrastructure.Postgres this project does not call ApplyOutboxInboxConfiguration
+    or AddOutboxInbox: doing so would create the shared outbox/inbox tables in this module's own
+    database for a writer that will never exist, which is exactly the "reference a capability nothing
+    calls" cost 20-00's own remarks on Ago.Calendar.Worker's telemetry reference warn against.
+  -->
+  <ItemGroup>
+    <!-- adr/0004: EF Core owns writes. -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <!-- Migration tooling only - never used at runtime, so it never ships in a container image. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ago.Faq.Application\Ago.Faq.Application.csproj" />
+  </ItemGroup>
+
+</Project>
