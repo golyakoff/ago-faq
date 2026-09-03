@@ -25,6 +25,12 @@ public static class ErrorExtensions
             "faq_module_task.already_complete" => StatusCodes.Status409Conflict,
             "faq_module_task.kind_mismatch" => StatusCodes.Status400BadRequest,
             "knowledge_base.text_too_long" => StatusCodes.Status400BadRequest,
+            // `22-11`. Provisioning's own vocabulary - this route sits behind
+            // IModuleProvisioningAuthenticator rather than an operator identity, so there is no
+            // enumeration concern shaping these toward vagueness.
+            "module_registration.not_found" => StatusCodes.Status404NotFound,
+            "module_registration.already_registered" => StatusCodes.Status409Conflict,
+            "module_registration.invalid_credential" => StatusCodes.Status400BadRequest,
             // Anything unmapped is a bug in this switch, not a client error - a 500 says so honestly
             // instead of inventing a 400 that would make a caller retry something that cannot work.
             _ => StatusCodes.Status500InternalServerError,

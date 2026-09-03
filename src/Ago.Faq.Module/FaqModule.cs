@@ -52,6 +52,19 @@ public sealed class FaqModule : IProductModule
         // configuration.
         services.AddScoped<IModuleCallCredentialValidator, HmacModuleCallCredentialValidator>();
 
+        // `22-11`: provisioning - the write that had nothing outside a test calling it. A different
+        // secret and a different mechanism from the credential validator just above - see
+        // IModuleProvisioningAuthenticator's own remarks.
+        services.AddOptions<ModuleProvisioningOptions>()
+            .Bind(configuration.GetSection(ModuleProvisioningOptions.SectionName))
+            .ValidateOnStart();
+        services.AddScoped<IModuleProvisioningAuthenticator, SharedSecretModuleProvisioningAuthenticator>();
+
+        services.AddScoped<Application.UseCases.ModuleRegistration.RegisterModuleSiteHandler>();
+        services.AddScoped<Application.UseCases.ModuleRegistration.RotateModuleSiteCredentialHandler>();
+        services.AddScoped<Application.UseCases.ModuleRegistration.RevokeModuleSiteRegistrationHandler>();
+        services.AddScoped<Application.UseCases.ModuleRegistration.GetModuleSiteRegistrationStatusHandler>();
+
         // `FaqAnswer:OpenAiCompatible:*` - bound, not hard-validated, at startup. The same lesson
         // ago-chat already learned once (commit d0b2ba6, "YandexGPT degrades instead of crash-looping
         // the host"): no environment has real credentials for this yet, and this optional feature must
