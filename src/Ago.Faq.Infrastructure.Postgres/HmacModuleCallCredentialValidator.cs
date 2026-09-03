@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Ago.Faq.Application.Abstractions;
 using Ago.Faq.Domain;
+using Microsoft.Extensions.Logging;
 
 namespace Ago.Faq.Infrastructure.Postgres;
 
@@ -35,8 +36,16 @@ namespace Ago.Faq.Infrastructure.Postgres;
 /// <para><b>Constant-time comparison</b> (<see cref="CryptographicOperations.FixedTimeEquals"/>) and a
 /// five-second clock-skew allowance on <c>exp</c>, in both directions - the identical reasoning
 /// `ago-calendar`'s own copy of this class gives for both, unchanged by this item.</para>
+///
+/// <para><b>`22-12`/adr/0099: every refusal is classified and logged before it returns.</b> The wire
+/// answer stays the flat <c>401</c> <c>ModuleTaskEndpoints</c> always returned -
+/// <see cref="ModuleCallRefusalReason"/> is never serialized - but each branch below now logs which
+/// case it was, structured on <c>{Reason}</c> and (whenever the payload parsed far enough to name one)
+/// <c>{ClaimedSiteId}</c>, and nothing else: never the header, never a signature, never a secret. The
+/// identical addition `ago-calendar`'s own copy of this class makes.</para>
 /// </summary>
-public sealed class HmacModuleCallCredentialValidator(IModuleSiteRegistrationRepository registrations)
+public sealed class HmacModuleCallCredentialValidator(
+    IModuleSiteRegistrationRepository registrations, ILogger<HmacModuleCallCredentialValidator> logger)
     : IModuleCallCredentialValidator
 {
     private static readonly TimeSpan ClockSkewAllowance = TimeSpan.FromSeconds(5);
@@ -51,13 +60,13 @@ public sealed class HmacModuleCallCredentialValidator(IModuleSiteRegistrationRep
         // see IModuleCallCredentialValidator's own remarks.
         if (string.IsNullOrEmpty(headerValue))
         {
-            return new ModuleCallCredentialResult(IsAuthenticated: false, SiteId: null);
+            return Refuse(ModuleCallRefusalReason.NoCredential, claimedSiteId: null);
         }
 
         var parts = headerValue.Split('.');
         if (parts.Length != 2)
         {
-            return new ModuleCallCredentialResult(IsAuthenticated: false, SiteId: null);
+            return Refuse(ModuleCallRefusalReason.Malformed, claimedSiteId: null);
         }
 
         var encodedPayload = parts[0];
@@ -70,7 +79,7 @@ public sealed class HmacModuleCallCredentialValidator(IModuleSiteRegistrationRep
         }
         catch (FormatException)
         {
-            return new ModuleCallCredentialResult(IsAuthenticated: false, SiteId: null);
+            return Refuse(ModuleCallRefusalReason.Malformed, claimedSiteId: null);
         }
 
         Payload? payload;
@@ -80,12 +89,12 @@ public sealed class HmacModuleCallCredentialValidator(IModuleSiteRegistrationRep
         }
         catch (JsonException)
         {
-            return new ModuleCallCredentialResult(IsAuthenticated: false, SiteId: null);
+            return Refuse(ModuleCallRefusalReason.Malformed, claimedSiteId: null);
         }
 
         if (payload is null)
         {
-            return new ModuleCallCredentialResult(IsAuthenticated: false, SiteId: null);
+            return Refuse(ModuleCallRefusalReason.Malformed, claimedSiteId: null);
         }
 
         // The claimed site id, not yet trusted - only used to find which secret this signature must
@@ -94,31 +103,62 @@ public sealed class HmacModuleCallCredentialValidator(IModuleSiteRegistrationRep
         var registration = await registrations.GetBySiteIdAsync(new SiteId(payload.SiteId), cancellationToken);
         if (registration is null)
         {
-            return new ModuleCallCredentialResult(IsAuthenticated: false, SiteId: null);
+            return Refuse(ModuleCallRefusalReason.SiteNotRegistered, payload.SiteId);
         }
 
         // `22-11`: tries every credential this row currently honours, current and (for a grace
         // window after a rotation) previous - see ModuleSiteRegistration.ActiveCredentials's own
         // remarks. The identical addition Ago.Calendar's own copy of this class makes.
-        var verified = registration.ActiveCredentials(now).Any(candidate =>
-        {
-            var expectedSignature = HMACSHA256.HashData(
-                Encoding.UTF8.GetBytes(candidate.Value), Encoding.UTF8.GetBytes(encodedPayload));
-            return CryptographicOperations.FixedTimeEquals(presentedSignature, expectedSignature);
-        });
+        var verified = registration.ActiveCredentials(now).Any(candidate => SignatureMatches(candidate, encodedPayload, presentedSignature));
         if (!verified)
         {
-            return new ModuleCallCredentialResult(IsAuthenticated: false, SiteId: null);
+            // `22-12`: before answering "forged", ask whether this is instead `22-11`'s own fourth
+            // case - a signature that matches the site's *previous* credential, checked here
+            // regardless of whether its grace window has already closed (unlike ActiveCredentials
+            // above, which only ever yields it while still open). Never accepted as authentication -
+            // only asked to tell "late" apart from "wrong" for the log line below.
+            var reason = registration.PreviousCredential is { } previous
+                && SignatureMatches(previous, encodedPayload, presentedSignature)
+                    ? ModuleCallRefusalReason.CredentialRotatedOut
+                    : ModuleCallRefusalReason.InvalidSignature;
+            return Refuse(reason, payload.SiteId);
         }
 
         var nowSeconds = now.ToUnixTimeSeconds();
         var skewSeconds = (long)ClockSkewAllowance.TotalSeconds;
         if (nowSeconds > payload.Exp + skewSeconds || nowSeconds < payload.Iat - skewSeconds)
         {
-            return new ModuleCallCredentialResult(IsAuthenticated: false, SiteId: null);
+            return Refuse(ModuleCallRefusalReason.AssertionExpired, payload.SiteId);
         }
 
         return new ModuleCallCredentialResult(IsAuthenticated: true, payload.SiteId);
+    }
+
+    private static bool SignatureMatches(ModuleCredential candidate, string encodedPayload, byte[] presentedSignature)
+    {
+        var expectedSignature = HMACSHA256.HashData(
+            Encoding.UTF8.GetBytes(candidate.Value), Encoding.UTF8.GetBytes(encodedPayload));
+        return CryptographicOperations.FixedTimeEquals(presentedSignature, expectedSignature);
+    }
+
+    /// <summary>`22-12`: the one place every refusal leaves through - logs <paramref name="reason"/>
+    /// and, when known, <paramref name="claimedSiteId"/>, then returns the unauthenticated result. The
+    /// identical Debug/Warning split `Ago.Calendar`'s own copy of this class makes: <see cref="ModuleCallRefusalReason.NoCredential"/>
+    /// and <see cref="ModuleCallRefusalReason.Malformed"/> at <see cref="LogLevel.Debug"/> - neither
+    /// names a site anything downstream could act on - and every other reason at
+    /// <see cref="LogLevel.Warning"/>.</summary>
+    private ModuleCallCredentialResult Refuse(ModuleCallRefusalReason reason, Guid? claimedSiteId)
+    {
+        if (reason is ModuleCallRefusalReason.NoCredential or ModuleCallRefusalReason.Malformed)
+        {
+            logger.LogDebug("Module call refused: {Reason}", reason);
+        }
+        else
+        {
+            logger.LogWarning("Module call refused: {Reason} for site {ClaimedSiteId}", reason, claimedSiteId);
+        }
+
+        return new ModuleCallCredentialResult(IsAuthenticated: false, SiteId: null, reason);
     }
 
     private sealed record Payload(
