@@ -43,4 +43,61 @@ public interface IModuleCallCredentialValidator
 /// <see langword="true"/> - always present in that case now that there is no header-optional rollout
 /// window left (see <see cref="IsAuthenticated"/>'s own remarks).
 /// </param>
-public readonly record struct ModuleCallCredentialResult(bool IsAuthenticated, Guid? SiteId);
+/// <param name="Reason">
+/// `22-12`: <see langword="null"/> exactly when <paramref name="IsAuthenticated"/> is
+/// <see langword="true"/>; otherwise which of <see cref="ModuleCallRefusalReason"/>'s cases produced
+/// the refusal - never serialized to the caller (<c>ModuleTaskEndpoints</c> still answers a flat
+/// <c>401</c> regardless of which value this carries, adr/0099's own decision), read only by
+/// <c>HmacModuleCallCredentialValidator</c> itself to log a refusal distinguishably. The identical
+/// addition <c>Ago.Calendar.Application.Abstractions.ModuleCallCredentialResult</c>'s own copy makes
+/// for its sibling.
+/// </param>
+public readonly record struct ModuleCallCredentialResult(bool IsAuthenticated, Guid? SiteId, ModuleCallRefusalReason? Reason = null);
+
+/// <summary>
+/// `22-12`/adr/0099: why a module call was refused - a second, independent copy of
+/// <c>Ago.Calendar.Application.Abstractions.ModuleCallRefusalReason</c>'s own cases, the identical
+/// "no shared package between two products" situation this file's own remarks already accept for the
+/// rest of this contract. If you are changing this enum, the identical change belongs in
+/// `ago-calendar`'s own copy too.
+///
+/// <para><b>Ordered roughly by how the item's own table names them</b>: <see cref="SiteNotRegistered"/>
+/// is the configuration case ("the module was never enabled for it"); <see cref="InvalidSignature"/> is
+/// the attack-or-mismatch case ("forged, or signed with another site's secret");
+/// <see cref="AssertionExpired"/> is the assertion's own 60-second TTL running out
+/// (<c>HmacModuleCallCredentialValidator</c>'s own <c>exp</c> check); <see cref="CredentialRotatedOut"/>
+/// is `22-11`'s addition - a signature that verifies against the site's own <em>previous</em> secret,
+/// after that secret's rotation grace window has elapsed, distinguished from <see cref="InvalidSignature"/>
+/// precisely because it was never forged, only late. <see cref="NoCredential"/> and
+/// <see cref="Malformed"/> are not named in the item's own table - a call with no site to attribute
+/// (nothing parsed yet) - and are logged at a quieter level for exactly that reason.</para>
+/// </summary>
+public enum ModuleCallRefusalReason
+{
+    /// <summary>No <c>X-Ago-Module-Credential</c> header was sent at all.</summary>
+    NoCredential,
+
+    /// <summary>A header was sent but is not two base64url segments carrying valid JSON - never far
+    /// enough into the token to know which site it claims.</summary>
+    Malformed,
+
+    /// <summary>The payload names a site with no <see cref="Ago.Faq.Domain.ModuleSiteRegistration"/>
+    /// row - "the module was never enabled for it", the item's own configuration case.</summary>
+    SiteNotRegistered,
+
+    /// <summary>The payload names a registered site, but the presented signature matches none of that
+    /// site's currently active credentials (and does not match a rotated-out previous one either - see
+    /// <see cref="CredentialRotatedOut"/>) - forged, or signed with the wrong site's secret.</summary>
+    InvalidSignature,
+
+    /// <summary>The signature matches a currently active credential, but the payload's own <c>iat</c>/
+    /// <c>exp</c> falls outside the 60-second TTL plus clock-skew allowance - the assertion itself has
+    /// expired, not the site's stored credential.</summary>
+    AssertionExpired,
+
+    /// <summary>`22-11`: the signature matches the site's <em>previous</em> credential, but
+    /// <see cref="Ago.Faq.Domain.ModuleSiteRegistration.PreviousCredentialExpiresAt"/> has already
+    /// passed - a credential that was genuinely valid until a rotation's grace window elapsed, not a
+    /// forgery.</summary>
+    CredentialRotatedOut,
+}
