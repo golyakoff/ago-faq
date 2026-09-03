@@ -44,15 +44,13 @@ public sealed class FaqModule : IProductModule
         services.AddScoped<GetKnowledgeBaseHandler>();
         services.AddScoped<PutKnowledgeBaseHandler>();
 
-        // `22-02`: bound, not hard-validated, at startup - an unconfigured secret disables the
-        // feature (every credential refused) rather than stopping this host from booting, matching
-        // this module's own established "optional feature, no environment has real credentials yet"
-        // tolerance a few lines below for FaqAnswer:OpenAiCompatible:*.
-        services.AddOptions<ModuleCallCredentialOptions>()
-            .Bind(configuration.GetSection(ModuleCallCredentialOptions.SectionName))
-            .ValidateOnStart();
-        services.AddSingleton(provider => provider.GetRequiredService<IOptions<ModuleCallCredentialOptions>>().Value);
-        services.AddSingleton<IModuleCallCredentialValidator, HmacModuleCallCredentialValidator>();
+        // `22-04`: no more deployment-wide secret to bind at startup - a call is now authenticated
+        // against the per-site Ago.Faq.Domain.ModuleSiteRegistration row its own claimed site id
+        // names, read fresh on every call through the same repository AddFaqPostgresPersistence just
+        // registered. Scoped, not singleton, for the identical reason every other adapter holding a
+        // DbContext-backed dependency here is: it is no longer a stateless class over static
+        // configuration.
+        services.AddScoped<IModuleCallCredentialValidator, HmacModuleCallCredentialValidator>();
 
         // `FaqAnswer:OpenAiCompatible:*` - bound, not hard-validated, at startup. The same lesson
         // ago-chat already learned once (commit d0b2ba6, "YandexGPT degrades instead of crash-looping

@@ -26,23 +26,33 @@ namespace Ago.Faq.Integration.Tests;
 /// <c>HmacModuleCallCredentialValidator</c> checks (written from that class's own documented contract,
 /// not by calling production code), matching <c>Ago.Calendar.Integration.Tests.ChatModuleTaskEndpointTests</c>'s
 /// identical approach for the sibling product.</para>
+///
+/// <para><b>`22-04`: no more one shared secret for the whole suite.</b> Each test that needs an
+/// authenticated call registers the exact site(s) it uses through
+/// <see cref="RegisterSiteAsync"/> - a direct write through <c>IModuleSiteRegistrationRepository</c>,
+/// the same "seed through the store, not through a console endpoint that does not exist yet" pattern
+/// <c>Start_InlineQuestion_WithConfiguredKnowledgeBaseAndProvider_ReturnsGroundedAnswer</c> already
+/// uses for <c>KnowledgeBaseRepository</c>. A site with no such row is exactly "the module is not
+/// enabled for this site" - <see cref="StartForAnUnregisteredSite_IsRefused"/> proves it is refused,
+/// not answered by falling back to anybody else's secret.</para>
 /// </summary>
 [Collection(PostgresCollection.Name)]
 public sealed class ModuleTaskEndpointTests(PostgresFixture fixture)
 {
     private static readonly DateTimeOffset Now = new(2026, 8, 31, 12, 0, 0, TimeSpan.Zero);
 
-    /// <summary>This suite's own shared secret, matching what <see cref="FaqApiFactory"/> configures
-    /// as <c>ChatModule:SharedSecret</c> for every factory this file builds.</summary>
-    private const string TestSharedSecret = "integration-test-shared-secret-of-sufficient-length";
-
     [Fact]
     public async Task Start_BareTrigger_ReturnsFormStep_NotComplete()
     {
-        await using var factory = new FaqApiFactory(fixture, moduleCredentialSharedSecret: TestSharedSecret);
+        await using var factory = new FaqApiFactory(fixture);
         using var client = factory.CreateClient();
 
-        var response = await StartAsync(client, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "/faq");
+        var siteId = Guid.NewGuid();
+        const string secret = "site-secret-of-sufficient-length-aaaaaa";
+        await RegisterSiteAsync(siteId, secret);
+
+        var response = await StartAsync(
+            client, Guid.NewGuid(), siteId, Guid.NewGuid(), "/faq", MintCredentialHeader(siteId, secret));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ModuleTaskStartResponse>();
@@ -55,11 +65,16 @@ public sealed class ModuleTaskEndpointTests(PostgresFixture fixture)
     [Fact]
     public async Task Start_InlineQuestion_NoKnowledgeBaseConfigured_ReturnsEscalate_Complete()
     {
-        await using var factory = new FaqApiFactory(fixture, moduleCredentialSharedSecret: TestSharedSecret);
+        await using var factory = new FaqApiFactory(fixture);
         using var client = factory.CreateClient();
 
+        var siteId = Guid.NewGuid();
+        const string secret = "site-secret-of-sufficient-length-bbbbbb";
+        await RegisterSiteAsync(siteId, secret);
+
         var response = await StartAsync(
-            client, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "/faq what is your return policy?");
+            client, Guid.NewGuid(), siteId, Guid.NewGuid(), "/faq what is your return policy?",
+            MintCredentialHeader(siteId, secret));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ModuleTaskStartResponse>();
@@ -71,16 +86,21 @@ public sealed class ModuleTaskEndpointTests(PostgresFixture fixture)
     [Fact]
     public async Task Reply_ToBareTriggerTask_WithNoKnowledgeBase_CompletesWithEscalate()
     {
-        await using var factory = new FaqApiFactory(fixture, moduleCredentialSharedSecret: TestSharedSecret);
+        await using var factory = new FaqApiFactory(fixture);
         using var client = factory.CreateClient();
 
         var chatTaskId = Guid.NewGuid();
         var siteId = Guid.NewGuid();
-        var startResponse = await StartAsync(client, chatTaskId, siteId, Guid.NewGuid(), "/faq");
+        const string secret = "site-secret-of-sufficient-length-cccccc";
+        await RegisterSiteAsync(siteId, secret);
+
+        var startResponse = await StartAsync(
+            client, chatTaskId, siteId, Guid.NewGuid(), "/faq", MintCredentialHeader(siteId, secret));
         var started = await startResponse.Content.ReadFromJsonAsync<ModuleTaskStartResponse>();
 
         var replyResponse = await ReplyAsync(
-            client, started!.ExternalTaskId, siteId, chatTaskId, FaqStepKinds.Form, "what is your return policy?");
+            client, started!.ExternalTaskId, siteId, chatTaskId, FaqStepKinds.Form, "what is your return policy?",
+            secret);
 
         Assert.Equal(HttpStatusCode.OK, replyResponse.StatusCode);
         var replied = await replyResponse.Content.ReadFromJsonAsync<ModuleTaskReplyResponse>();
@@ -93,11 +113,15 @@ public sealed class ModuleTaskEndpointTests(PostgresFixture fixture)
     [Fact]
     public async Task Reply_ToUnknownExternalTaskId_Returns404()
     {
-        await using var factory = new FaqApiFactory(fixture, moduleCredentialSharedSecret: TestSharedSecret);
+        await using var factory = new FaqApiFactory(fixture);
         using var client = factory.CreateClient();
 
+        var siteId = Guid.NewGuid();
+        await RegisterSiteAsync(siteId, "site-secret-of-sufficient-length-dddddd");
+
         var response = await ReplyAsync(
-            client, Guid.NewGuid().ToString(), Guid.NewGuid(), Guid.NewGuid(), FaqStepKinds.Form, "anything?");
+            client, Guid.NewGuid().ToString(), siteId, Guid.NewGuid(), FaqStepKinds.Form, "anything?",
+            "site-secret-of-sufficient-length-dddddd");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -105,18 +129,22 @@ public sealed class ModuleTaskEndpointTests(PostgresFixture fixture)
     [Fact]
     public async Task Reply_ToAnAlreadyCompletedTask_Returns409()
     {
-        await using var factory = new FaqApiFactory(fixture, moduleCredentialSharedSecret: TestSharedSecret);
+        await using var factory = new FaqApiFactory(fixture);
         using var client = factory.CreateClient();
 
         var chatTaskId = Guid.NewGuid();
         var siteId = Guid.NewGuid();
+        const string secret = "site-secret-of-sufficient-length-eeeeee";
+        await RegisterSiteAsync(siteId, secret);
+
         var startResponse = await StartAsync(
-            client, chatTaskId, siteId, Guid.NewGuid(), "/faq an inline question already answers this");
+            client, chatTaskId, siteId, Guid.NewGuid(), "/faq an inline question already answers this",
+            MintCredentialHeader(siteId, secret));
         var started = await startResponse.Content.ReadFromJsonAsync<ModuleTaskStartResponse>();
         Assert.True(started!.Complete);
 
         var replyResponse = await ReplyAsync(
-            client, started.ExternalTaskId, siteId, chatTaskId, FaqStepKinds.Form, "a second question");
+            client, started.ExternalTaskId, siteId, chatTaskId, FaqStepKinds.Form, "a second question", secret);
 
         Assert.Equal(HttpStatusCode.Conflict, replyResponse.StatusCode);
     }
@@ -134,6 +162,9 @@ public sealed class ModuleTaskEndpointTests(PostgresFixture fixture)
                 CancellationToken.None);
         }
 
+        const string secret = "site-secret-of-sufficient-length-ffffff";
+        await RegisterSiteAsync(siteId, secret);
+
         await using var providerHost = await BuildFakeProviderHostAsync(app =>
             app.MapPost("chat/completions", () => Results.Json(new
             {
@@ -143,11 +174,12 @@ public sealed class ModuleTaskEndpointTests(PostgresFixture fixture)
                 },
             })));
 
-        await using var factory = new FaqApiFactory(fixture, providerHost.BaseUrl, TestSharedSecret);
+        await using var factory = new FaqApiFactory(fixture, providerHost.BaseUrl);
         using var client = factory.CreateClient();
 
         var response = await StartAsync(
-            client, Guid.NewGuid(), siteId, Guid.NewGuid(), "/faq what is your return policy?");
+            client, Guid.NewGuid(), siteId, Guid.NewGuid(), "/faq what is your return policy?",
+            MintCredentialHeader(siteId, secret));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ModuleTaskStartResponse>();
@@ -157,16 +189,81 @@ public sealed class ModuleTaskEndpointTests(PostgresFixture fixture)
     }
 
     // ------------------------------------------------------------------------------------------
-    // `22-02`'s own three-directional security claim, over the real host and a real signature
-    // check. AnUnmappedSiblingRoute_Returns404 is this suite's own distinguishable-401-vs-404
-    // control (`20-24`'s lesson) - Reply_ToUnknownExternalTaskId_Returns404 above already proves
-    // the "known route, unknown resource" half.
+    // `22-04`'s own claim: resolution is per site, proven with two sites rather than reasoned
+    // about with one, and each site's secret is independently generated rather than one value
+    // this whole deployment shares (adr/0094's own named limit, closed here).
     // ------------------------------------------------------------------------------------------
+
+    /// <summary>The Done-when's own sharpest requirement: two sites, each with the module enabled
+    /// under its own independently generated secret, resolve completely independently of one another
+    /// in the same run - not merely "the mechanism works once".</summary>
+    [Fact]
+    public async Task TwoSites_EachWithItsOwnRegistration_BothStartIndependently()
+    {
+        await using var factory = new FaqApiFactory(fixture);
+        using var client = factory.CreateClient();
+
+        var siteA = Guid.NewGuid();
+        var siteB = Guid.NewGuid();
+        const string secretA = "independent-secret-for-site-a-aaaaaaaaaa";
+        const string secretB = "a-completely-different-secret-for-site-b";
+        await RegisterSiteAsync(siteA, secretA);
+        await RegisterSiteAsync(siteB, secretB);
+
+        var responseA = await StartAsync(client, Guid.NewGuid(), siteA, Guid.NewGuid(), "/faq", MintCredentialHeader(siteA, secretA));
+        var responseB = await StartAsync(client, Guid.NewGuid(), siteB, Guid.NewGuid(), "/faq", MintCredentialHeader(siteB, secretB));
+
+        Assert.Equal(HttpStatusCode.OK, responseA.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, responseB.StatusCode);
+    }
+
+    /// <summary>A site nobody registered has no secret to be checked against - refused exactly like
+    /// any other unauthenticated call, never answered by falling back to any other site's tenant or
+    /// secret.</summary>
+    [Fact]
+    public async Task StartForAnUnregisteredSite_IsRefused()
+    {
+        await using var factory = new FaqApiFactory(fixture);
+        using var client = factory.CreateClient();
+
+        var unregisteredSite = Guid.NewGuid();
+        var response = await StartAsync(
+            client, Guid.NewGuid(), unregisteredSite, Guid.NewGuid(), "/faq",
+            MintCredentialHeader(unregisteredSite, "a-secret-nobody-ever-registered-anywhere"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    /// <summary>`22-04`'s own regression guard for adr/0094's named limit: under the old
+    /// deployment-wide secret this exact call would have succeeded, because one secret verified every
+    /// site. Site A's own secret is real and registered; the token merely claims to be site B's -
+    /// which has its own, different, registered secret - and the signature can only ever verify
+    /// against the secret the claimed site actually owns.</summary>
+    [Fact]
+    public async Task CredentialSignedWithSiteAsOwnSecret_ButClaimingSiteB_IsRefused()
+    {
+        await using var factory = new FaqApiFactory(fixture);
+        using var client = factory.CreateClient();
+
+        var siteA = Guid.NewGuid();
+        var siteB = Guid.NewGuid();
+        const string secretA = "site-a-owns-this-secret-and-nobody-else-does";
+        const string secretB = "site-b-owns-a-completely-different-one-here";
+        await RegisterSiteAsync(siteA, secretA);
+        await RegisterSiteAsync(siteB, secretB);
+
+        // Signed with A's own secret, but the payload claims to be B.
+        var forgedForB = MintCredentialHeader(siteB, secretA);
+
+        var response = await StartAsync(client, Guid.NewGuid(), siteB, Guid.NewGuid(), "/faq", forgedForB);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
 
     [Fact]
     public async Task StartWithNoCredentialHeader_IsRefused()
     {
-        await using var factory = new FaqApiFactory(fixture, moduleCredentialSharedSecret: TestSharedSecret);
+        await using var factory = new FaqApiFactory(fixture);
         using var client = factory.CreateClient();
 
         var response = await client.PostAsJsonAsync(
@@ -178,12 +275,15 @@ public sealed class ModuleTaskEndpointTests(PostgresFixture fixture)
     [Fact]
     public async Task StartWithAWrongCredential_IsRefused()
     {
-        await using var factory = new FaqApiFactory(fixture, moduleCredentialSharedSecret: TestSharedSecret);
+        await using var factory = new FaqApiFactory(fixture);
         using var client = factory.CreateClient();
 
         var siteId = Guid.NewGuid();
+        await RegisterSiteAsync(siteId, "the-real-registered-secret-for-this-site");
+
         var response = await StartAsync(
-            client, Guid.NewGuid(), siteId, Guid.NewGuid(), "/faq", MintCredentialHeader(siteId, "a-completely-different-secret-value"));
+            client, Guid.NewGuid(), siteId, Guid.NewGuid(), "/faq",
+            MintCredentialHeader(siteId, "a-completely-different-secret-value-here"));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -193,14 +293,17 @@ public sealed class ModuleTaskEndpointTests(PostgresFixture fixture)
     [Fact]
     public async Task StartWithACredentialForAnotherSite_IsRefused()
     {
-        await using var factory = new FaqApiFactory(fixture, moduleCredentialSharedSecret: TestSharedSecret);
+        await using var factory = new FaqApiFactory(fixture);
         using var client = factory.CreateClient();
 
         var credentialedSiteId = Guid.NewGuid();
         var differentBodySiteId = Guid.NewGuid();
+        const string secret = "this-sites-own-registered-secret-value-x";
+        await RegisterSiteAsync(credentialedSiteId, secret);
+
         var response = await StartAsync(
             client, Guid.NewGuid(), differentBodySiteId, Guid.NewGuid(), "/faq",
-            MintCredentialHeader(credentialedSiteId, TestSharedSecret));
+            MintCredentialHeader(credentialedSiteId, secret));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -212,17 +315,22 @@ public sealed class ModuleTaskEndpointTests(PostgresFixture fixture)
     [Fact]
     public async Task ReplyWithACredentialForAnotherSite_IsRefused_AsIfTheTaskDidNotExist()
     {
-        await using var factory = new FaqApiFactory(fixture, moduleCredentialSharedSecret: TestSharedSecret);
+        await using var factory = new FaqApiFactory(fixture);
         using var client = factory.CreateClient();
 
         var chatTaskId = Guid.NewGuid();
         var siteA = Guid.NewGuid();
-        var startResponse = await StartAsync(client, chatTaskId, siteA, Guid.NewGuid(), "/faq");
+        var siteB = Guid.NewGuid();
+        const string secretA = "site-a-secret-for-cross-task-reply-test-x";
+        const string secretB = "site-b-secret-for-cross-task-reply-test-y";
+        await RegisterSiteAsync(siteA, secretA);
+        await RegisterSiteAsync(siteB, secretB);
+
+        var startResponse = await StartAsync(client, chatTaskId, siteA, Guid.NewGuid(), "/faq", MintCredentialHeader(siteA, secretA));
         var started = await startResponse.Content.ReadFromJsonAsync<ModuleTaskStartResponse>();
 
-        var siteB = Guid.NewGuid();
         var replyResponse = await ReplyAsync(
-            client, started!.ExternalTaskId, siteB, chatTaskId, FaqStepKinds.Form, "what is your return policy?");
+            client, started!.ExternalTaskId, siteB, chatTaskId, FaqStepKinds.Form, "what is your return policy?", secretB);
 
         Assert.Equal(HttpStatusCode.NotFound, replyResponse.StatusCode);
     }
@@ -230,12 +338,24 @@ public sealed class ModuleTaskEndpointTests(PostgresFixture fixture)
     [Fact]
     public async Task AnUnmappedSiblingRoute_Returns404()
     {
-        await using var factory = new FaqApiFactory(fixture, moduleCredentialSharedSecret: TestSharedSecret);
+        await using var factory = new FaqApiFactory(fixture);
         using var client = factory.CreateClient();
 
         var response = await client.GetAsync("/api/v1/module-tasks-nonexistent-sibling-route");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    /// <summary>`22-04`: seeds one <c>ModuleSiteRegistration</c> row directly through the write-side
+    /// repository - the registry's own consuming half, proven separately by
+    /// <c>Ago.Faq.Domain.Tests</c>; no console or provisioning endpoint exists yet to do this over
+    /// HTTP (out of this item's own scope - see this item's report).</summary>
+    private async Task RegisterSiteAsync(Guid siteId, string secret)
+    {
+        await using var db = fixture.CreateDbContext();
+        await new ModuleSiteRegistrationRepository(db).AddAsync(
+            ModuleSiteRegistration.Register(new SiteId(siteId), new ModuleCredential(secret), Now),
+            CancellationToken.None);
     }
 
     private static async Task<HttpResponseMessage> StartAsync(
@@ -245,7 +365,11 @@ public sealed class ModuleTaskEndpointTests(PostgresFixture fixture)
         {
             Content = JsonContent.Create(new ModuleTaskStartRequest(chatTaskId, siteId, conversationId, triggerText)),
         };
-        request.Headers.Add("X-Ago-Module-Credential", credentialHeader ?? MintCredentialHeader(siteId, TestSharedSecret));
+        if (credentialHeader is not null)
+        {
+            request.Headers.Add("X-Ago-Module-Credential", credentialHeader);
+        }
+
         // Awaited here, not returned as a bare Task - `request` is disposed by this method's own
         // `using` the moment it returns, and disposing it before SendAsync has finished reading its
         // content throws ObjectDisposedException from inside the TestServer pipeline (found by this
@@ -255,18 +379,20 @@ public sealed class ModuleTaskEndpointTests(PostgresFixture fixture)
 
     private static async Task<HttpResponseMessage> ReplyAsync(
         HttpClient client, string externalTaskId, Guid siteId, Guid chatTaskId, string kind, string value,
-        string? credentialHeader = null)
+        string secret)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/module-tasks/{externalTaskId}/replies")
         {
             Content = JsonContent.Create(new ModuleTaskReplyRequest(chatTaskId, kind, value)),
         };
-        request.Headers.Add("X-Ago-Module-Credential", credentialHeader ?? MintCredentialHeader(siteId, TestSharedSecret));
+        request.Headers.Add("X-Ago-Module-Credential", MintCredentialHeader(siteId, secret));
         return await client.SendAsync(request);
     }
 
-    /// <summary>`22-02`: written from <c>HmacModuleCallCredentialValidator</c>'s own documented
-    /// contract, not by calling production code - see this class's own remarks.</summary>
+    /// <summary>`22-02`/`22-04`: written from <c>HmacModuleCallCredentialValidator</c>'s own
+    /// documented contract, not by calling production code - see this class's own remarks. The secret
+    /// is now a per-call parameter rather than one constant this whole file shared, matching the
+    /// per-site registration this suite seeds through <see cref="RegisterSiteAsync"/>.</summary>
     private static string MintCredentialHeader(Guid siteId, string secret, TimeSpan? expiresIn = null)
     {
         var now = DateTimeOffset.UtcNow;

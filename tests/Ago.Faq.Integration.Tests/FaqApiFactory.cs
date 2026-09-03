@@ -25,12 +25,14 @@ namespace Ago.Faq.Integration.Tests;
 /// provider host (<see cref="ModuleTaskEndpointTests"/>'s own answered-question test) - null leaves the
 /// feature unconfigured, the ordinary case for every other test in this suite.</para>
 ///
-/// <para><paramref name="moduleCredentialSharedSecret"/> - `22-02`: null leaves
-/// <c>ChatModule:SharedSecret</c> unset, matching <c>ModuleCallCredentialOptions</c>'s own
-/// "unconfigured refuses every credential" default; <see cref="ModuleTaskEndpointTests"/> is the only
-/// caller that supplies one.</para>
+/// <para><b>`22-04`: no more shared-secret setting.</b> The deployment-wide
+/// <c>ChatModule:SharedSecret</c> this factory used to bind is gone along with
+/// <c>ModuleCallCredentialOptions</c> - a credential is now checked against whichever
+/// <c>Ago.Faq.Domain.ModuleSiteRegistration</c> row its own claimed site id names, seeded directly
+/// through <c>IModuleSiteRegistrationRepository</c> by whichever test needs one (see
+/// <see cref="ModuleTaskEndpointTests"/>'s own seeding helper).</para>
 /// </summary>
-public class FaqApiFactory(PostgresFixture fixture, string? faqAnswerBaseUrl = null, string? moduleCredentialSharedSecret = null)
+public class FaqApiFactory(PostgresFixture fixture, string? faqAnswerBaseUrl = null)
     : WebApplicationFactory<Program>
 {
     public const string UnreachableAuthority = "https://keycloak.invalid/realms/ago";
@@ -47,11 +49,6 @@ public class FaqApiFactory(PostgresFixture fixture, string? faqAnswerBaseUrl = n
             builder.UseSetting("FaqAnswer:OpenAiCompatible:ApiKey", "test-key");
             builder.UseSetting("FaqAnswer:OpenAiCompatible:BaseUrl", faqAnswerBaseUrl);
             builder.UseSetting("FaqAnswer:OpenAiCompatible:Model", "test-model");
-        }
-
-        if (moduleCredentialSharedSecret is not null)
-        {
-            builder.UseSetting("ChatModule:SharedSecret", moduleCredentialSharedSecret);
         }
     }
 }
