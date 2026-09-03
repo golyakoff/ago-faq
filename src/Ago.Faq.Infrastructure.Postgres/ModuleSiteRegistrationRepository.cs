@@ -17,4 +17,15 @@ public sealed class ModuleSiteRegistrationRepository(AgoFaqDbContext db) : IModu
         db.ModuleSiteRegistrations.Add(registration);
         await db.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task UpdateAsync(ModuleSiteRegistration registration, CancellationToken cancellationToken)
+    {
+        db.ModuleSiteRegistrations.Update(registration);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task DeleteAsync(SiteId siteId, CancellationToken cancellationToken)
+    {
+        await db.ModuleSiteRegistrations.Where(r => r.SiteId == siteId).ExecuteDeleteAsync(cancellationToken);
+    }
 }

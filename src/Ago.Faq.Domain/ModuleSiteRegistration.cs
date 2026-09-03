@@ -26,6 +26,14 @@
 /// apart. This row lives inside <c>Ago.Faq.*</c> itself, which only ever answers for the FAQ module -
 /// the type name already says which module this is, the same reason
 /// <c>Ago.Calendar.Domain.ChatModuleRegistration</c>'s own remarks give for its sibling.</para>
+///
+/// <para><b>`22-11`: <see cref="PreviousCredential"/> - rotate without downtime, the identical
+/// mechanism <c>Ago.Calendar.Domain.ChatModuleRegistration</c>'s own remarks give for its sibling,
+/// restated here rather than referenced because each product's own domain types are its own
+/// (coding-style.md). A rotation demotes the outgoing <see cref="Credential"/> to
+/// <see cref="PreviousCredential"/> with its own <see cref="PreviousCredentialExpiresAt"/> instead of
+/// discarding it outright, so a call signed a moment before the switch still verifies a moment
+/// after.</para>
 /// </summary>
 public sealed class ModuleSiteRegistration
 {
@@ -33,12 +41,22 @@ public sealed class ModuleSiteRegistration
 
     public ModuleCredential Credential { get; }
 
+    /// <summary>`22-11`: the credential a rotation just replaced, kept valid until
+    /// <see cref="PreviousCredentialExpiresAt"/> - see <see cref="Rotate"/>'s own remarks.</summary>
+    public ModuleCredential? PreviousCredential { get; }
+
+    public DateTimeOffset? PreviousCredentialExpiresAt { get; }
+
     public DateTimeOffset RegisteredAt { get; }
 
-    private ModuleSiteRegistration(SiteId siteId, ModuleCredential credential, DateTimeOffset registeredAt)
+    private ModuleSiteRegistration(
+        SiteId siteId, ModuleCredential credential, ModuleCredential? previousCredential,
+        DateTimeOffset? previousCredentialExpiresAt, DateTimeOffset registeredAt)
     {
         SiteId = siteId;
         Credential = credential;
+        PreviousCredential = previousCredential;
+        PreviousCredentialExpiresAt = previousCredentialExpiresAt;
         RegisteredAt = registeredAt;
     }
 
@@ -48,5 +66,25 @@ public sealed class ModuleSiteRegistration
     }
 
     public static ModuleSiteRegistration Register(SiteId siteId, ModuleCredential credential, DateTimeOffset now) =>
-        new(siteId, credential, now);
+        new(siteId, credential, previousCredential: null, previousCredentialExpiresAt: null, now);
+
+    /// <summary>`22-11`: replaces <see cref="Credential"/>, keeping the outgoing value valid for
+    /// <paramref name="overlapWindow"/> more - see
+    /// <c>Ago.Calendar.Domain.ChatModuleRegistration.Rotate</c>'s own remarks for the full argument,
+    /// identical here: does not chain a second previous credential, so a not-yet-expired previous
+    /// value is dropped rather than accumulated.</summary>
+    public ModuleSiteRegistration Rotate(ModuleCredential newCredential, DateTimeOffset now, TimeSpan overlapWindow) =>
+        new(SiteId, newCredential, Credential, now + overlapWindow, RegisteredAt);
+
+    /// <summary>Every credential that currently proves a call for this site - the current one, plus
+    /// the previous one if it was demoted less than its own grace window ago.</summary>
+    public IEnumerable<ModuleCredential> ActiveCredentials(DateTimeOffset now)
+    {
+        yield return Credential;
+
+        if (PreviousCredential is { } previous && PreviousCredentialExpiresAt is { } expiresAt && now < expiresAt)
+        {
+            yield return previous;
+        }
+    }
 }

@@ -23,6 +23,19 @@ internal sealed class ModuleSiteRegistrationConfiguration : IEntityTypeConfigura
             .HasConversion(c => c.Value, v => new ModuleCredential(v))
             .IsRequired();
 
+        // `22-11`: nullable - see Ago.Calendar's identical column on its own sibling table for the
+        // reasoning (ChatModuleRegistrationConfiguration's own remarks).
+        builder.Property(r => r.PreviousCredential)
+            .HasColumnName("previous_credential")
+            .HasMaxLength(ModuleCredential.MaxLength)
+            .HasConversion(
+                c => c == null ? null : c.Value.Value,
+                v => v == null ? null : new ModuleCredential(v));
+
+        builder.Property(r => r.PreviousCredentialExpiresAt)
+            .HasColumnName("previous_credential_expires_at")
+            .HasColumnType("timestamptz");
+
         builder.Property(r => r.RegisteredAt).HasColumnName("registered_at").HasColumnType("timestamptz");
     }
 }

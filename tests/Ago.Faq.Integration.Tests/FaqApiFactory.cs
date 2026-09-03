@@ -37,12 +37,18 @@ public class FaqApiFactory(PostgresFixture fixture, string? faqAnswerBaseUrl = n
 {
     public const string UnreachableAuthority = "https://keycloak.invalid/realms/ago";
 
+    /// <summary>`22-11`: the shared secret every suite using this factory can provision with - the
+    /// identical "one wide-open value" shape <c>Ago.Calendar.Integration.Tests.CalendarApiFactory.TestProvisioningSecret</c>
+    /// gives its sibling.</summary>
+    public const string TestProvisioningSecret = "integration-test-provisioning-secret-of-sufficient-length";
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
         builder.UseSetting("ConnectionStrings:Faq", fixture.ConnectionString);
         builder.UseSetting("Operator:Authority", UnreachableAuthority);
+        builder.UseSetting("ModuleProvisioning:Secret", TestProvisioningSecret);
 
         if (faqAnswerBaseUrl is not null)
         {

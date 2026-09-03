@@ -46,6 +46,10 @@ app.UseAuthorization();
 // policy. See ModuleTaskEndpoints's own remarks.
 app.MapModuleTaskEndpoints();
 
+// `22-11`: the generic provisioning surface that makes the row ModuleTaskEndpoints checks on every
+// call actually exist - see ModuleRegistrationEndpoints's own remarks.
+app.MapModuleRegistrationEndpoints();
+
 // This item's own new surface: the console-facing knowledge-base configuration screen.
 app.MapKnowledgeBaseEndpoints();
 
