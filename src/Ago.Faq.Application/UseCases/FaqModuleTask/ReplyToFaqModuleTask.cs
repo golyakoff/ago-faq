@@ -7,10 +7,10 @@
 /// waits on a reply for.</param>
 /// <param name="Value">The visitor's raw typed question text.</param>
 /// <param name="CredentialSiteId">`22-02`: the site id <c>Ago.Faq.Api.ModuleTasks.ModuleTaskEndpoints</c>'s
-/// own credential check proved this call is for - <see langword="null"/> only in the
-/// accepting-but-warning rollout window (see <c>IModuleCallCredentialValidator</c>'s own remarks), in
-/// which case <see cref="ReplyToFaqModuleTaskHandler"/> skips the cross-check below rather than
-/// treating it as a mismatch. Checked against <c>Domain.FaqModuleTask.SiteId</c> - the one piece of
+/// own credential check proved this call is for - always present since `22-04` removed the one
+/// rollout window that used to leave it null (<c>IModuleCallCredentialValidator</c>'s own remarks);
+/// the type stays nullable and <see cref="ReplyToFaqModuleTaskHandler"/> still skips the cross-check
+/// rather than assume-and-throw if it ever is. Checked against <c>Domain.FaqModuleTask.SiteId</c> - the one piece of
 /// `22-02`'s claim this module can actually enforce that `ago-calendar`'s own reply route cannot yet:
 /// this module already stores a site id per task (this file's own <c>StartFaqModuleTask.SiteId</c>
 /// remarks), so a credential proven for site A is refused outright against a task that belongs to site

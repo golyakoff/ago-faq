@@ -30,6 +30,11 @@ namespace Ago.Faq.Api.ModuleTasks;
 /// (against the task actually being replied to, not merely the request shape) belongs in the handler
 /// that loads that task - see <see cref="ReplyToFaqModuleTaskHandler"/>'s own remarks.</para>
 ///
+/// <para><b>`22-04`: the credential is now checked against a per-site secret</b>
+/// (<c>HmacModuleCallCredentialValidator</c>'s own remarks) rather than one shared across this whole
+/// deployment - <see cref="IModuleCallCredentialValidator.ValidateAsync"/> reads a database row to do
+/// it, which is why the call below is awaited rather than a synchronous method call.</para>
+///
 /// <para><b>200, not 201, on the <c>POST</c> that starts a task.</b> api-design.md's default is
 /// <c>201</c> with a <c>Location</c> for a creating <c>POST</c>; this route deviates for the identical
 /// reason <c>ChatModuleTaskEndpoints</c>'s own remarks give: the wire contract is fixed by
@@ -66,15 +71,18 @@ public static class ModuleTaskEndpoints
             return Results.BadRequest();
         }
 
-        var auth = credentialValidator.Validate(httpContext.Request.Headers[CredentialHeaderName], clock.UtcNow);
+        var auth = await credentialValidator.ValidateAsync(
+            httpContext.Request.Headers[CredentialHeaderName], clock.UtcNow, cancellationToken);
         if (!auth.IsAuthenticated)
         {
             return Results.Unauthorized();
         }
 
         // `22-02`'s own sharpest claim: a credential valid for one site cannot name another in the
-        // body. auth.SiteId is only ever null in the accepting-but-warning rollout window (see
-        // IModuleCallCredentialValidator's own remarks), in which case there is nothing to check yet.
+        // body. `22-04` removed the one case that used to leave auth.SiteId null (the
+        // accepting-but-warning rollout window) - IsAuthenticated true now always carries a real site
+        // id - but the null-conditional stays rather than an assumed-non-null read, so this check
+        // degrades safely rather than throwing if that ever stops being true again.
         if (auth.SiteId is { } authenticatedSiteId && authenticatedSiteId != request.SiteId)
         {
             return Results.Unauthorized();
@@ -107,7 +115,8 @@ public static class ModuleTaskEndpoints
             return Results.BadRequest();
         }
 
-        var auth = credentialValidator.Validate(httpContext.Request.Headers[CredentialHeaderName], clock.UtcNow);
+        var auth = await credentialValidator.ValidateAsync(
+            httpContext.Request.Headers[CredentialHeaderName], clock.UtcNow, cancellationToken);
         if (!auth.IsAuthenticated)
         {
             return Results.Unauthorized();

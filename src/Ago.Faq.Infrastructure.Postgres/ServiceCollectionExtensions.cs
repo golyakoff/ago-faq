@@ -24,6 +24,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IFaqModuleTaskStore, FaqModuleTaskStore>();
         services.AddScoped<IKnowledgeBaseRepository, KnowledgeBaseRepository>();
 
+        // `22-04`: adr/0065's registry, this module's own consuming half.
+        services.AddScoped<IModuleSiteRegistrationRepository, ModuleSiteRegistrationRepository>();
+
         return services;
     }
 }
