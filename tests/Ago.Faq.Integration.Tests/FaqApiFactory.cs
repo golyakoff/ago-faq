@@ -24,8 +24,14 @@ namespace Ago.Faq.Integration.Tests;
 /// <para><paramref name="faqAnswerBaseUrl"/> lets a test point the OpenAI-compatible client at a fake
 /// provider host (<see cref="ModuleTaskEndpointTests"/>'s own answered-question test) - null leaves the
 /// feature unconfigured, the ordinary case for every other test in this suite.</para>
+///
+/// <para><paramref name="moduleCredentialSharedSecret"/> - `22-02`: null leaves
+/// <c>ChatModule:SharedSecret</c> unset, matching <c>ModuleCallCredentialOptions</c>'s own
+/// "unconfigured refuses every credential" default; <see cref="ModuleTaskEndpointTests"/> is the only
+/// caller that supplies one.</para>
 /// </summary>
-public class FaqApiFactory(PostgresFixture fixture, string? faqAnswerBaseUrl = null) : WebApplicationFactory<Program>
+public class FaqApiFactory(PostgresFixture fixture, string? faqAnswerBaseUrl = null, string? moduleCredentialSharedSecret = null)
+    : WebApplicationFactory<Program>
 {
     public const string UnreachableAuthority = "https://keycloak.invalid/realms/ago";
 
@@ -41,6 +47,11 @@ public class FaqApiFactory(PostgresFixture fixture, string? faqAnswerBaseUrl = n
             builder.UseSetting("FaqAnswer:OpenAiCompatible:ApiKey", "test-key");
             builder.UseSetting("FaqAnswer:OpenAiCompatible:BaseUrl", faqAnswerBaseUrl);
             builder.UseSetting("FaqAnswer:OpenAiCompatible:Model", "test-model");
+        }
+
+        if (moduleCredentialSharedSecret is not null)
+        {
+            builder.UseSetting("ChatModule:SharedSecret", moduleCredentialSharedSecret);
         }
     }
 }
