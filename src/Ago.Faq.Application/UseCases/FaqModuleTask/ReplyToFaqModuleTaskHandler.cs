@@ -27,6 +27,19 @@ public sealed class ReplyToFaqModuleTaskHandler(
             return FaqModuleTaskErrors.TaskNotFound();
         }
 
+        // `22-02`: a credential proven for one site cannot act on another site's already-started
+        // task - the exact property this module can enforce on its reply route that `ago-calendar`'s
+        // own reply route cannot yet (that product's ChatBookingTask carries no site id of its own;
+        // see ReplyToFaqModuleTask's own remarks). TaskNotFound, not a distinct "forbidden" error:
+        // this module has no more to tell a caller holding the wrong site's credential than it would
+        // tell a caller who simply guessed a task id that never existed - the same "do not confirm a
+        // resource's existence to a caller not entitled to it" reasoning PublicBookingErrors already
+        // applies in ago-calendar.
+        if (command.CredentialSiteId is { } credentialSiteId && credentialSiteId != task.SiteId.Value)
+        {
+            return FaqModuleTaskErrors.TaskNotFound();
+        }
+
         if (task.State == Domain.FaqModuleTaskState.Completed)
         {
             return FaqModuleTaskErrors.AlreadyComplete();

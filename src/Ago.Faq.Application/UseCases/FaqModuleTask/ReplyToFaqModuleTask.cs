@@ -6,6 +6,15 @@
 /// <param name="Kind">Echoes the step's own kind - must be <c>form</c>, the only kind this module ever
 /// waits on a reply for.</param>
 /// <param name="Value">The visitor's raw typed question text.</param>
-public sealed record ReplyToFaqModuleTask(string ExternalTaskId, Guid ChatTaskId, string Kind, string Value);
+/// <param name="CredentialSiteId">`22-02`: the site id <c>Ago.Faq.Api.ModuleTasks.ModuleTaskEndpoints</c>'s
+/// own credential check proved this call is for - <see langword="null"/> only in the
+/// accepting-but-warning rollout window (see <c>IModuleCallCredentialValidator</c>'s own remarks), in
+/// which case <see cref="ReplyToFaqModuleTaskHandler"/> skips the cross-check below rather than
+/// treating it as a mismatch. Checked against <c>Domain.FaqModuleTask.SiteId</c> - the one piece of
+/// `22-02`'s claim this module can actually enforce that `ago-calendar`'s own reply route cannot yet:
+/// this module already stores a site id per task (this file's own <c>StartFaqModuleTask.SiteId</c>
+/// remarks), so a credential proven for site A is refused outright against a task that belongs to site
+/// B, not merely authenticated and trusted.</param>
+public sealed record ReplyToFaqModuleTask(string ExternalTaskId, Guid ChatTaskId, string Kind, string Value, Guid? CredentialSiteId = null);
 
 public sealed record FaqModuleTaskReplied(FaqModuleStep Step, bool Complete);

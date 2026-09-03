@@ -1,6 +1,8 @@
 ﻿using Ago.Faq.Api.Http;
+using Ago.Faq.Application.Abstractions;
 using Ago.Faq.Application.UseCases.FaqModuleTask;
 using Ago.Faq.Contracts;
+using Ago.Platform.Kernel;
 
 namespace Ago.Faq.Api.ModuleTasks;
 
@@ -14,9 +16,19 @@ namespace Ago.Faq.Api.ModuleTasks;
 ///
 /// <para><b>Server-to-server, not widget-facing, and outside any CORS policy.</b> Nothing here checks
 /// an <c>Origin</c> header - a server calling another server does not send one, the same reasoning
-/// <c>ChatModuleTaskEndpoints</c>'s own remarks give. <b>No service-to-service authentication exists
-/// yet</b> - adr/0077 already names this as a real, accepted gap for Calendar's identical surface, and
-/// this module extends it here without re-litigating it (`19-03`'s own "Decided" section, ago-root).</para>
+/// <c>ChatModuleTaskEndpoints</c>'s own remarks give.</para>
+///
+/// <para><b>`22-02`: every request now carries a signed <c>X-Ago-Module-Credential</c> header</b>,
+/// checked by <see cref="IModuleCallCredentialValidator"/> before either handler ever runs - the gap
+/// adr/0077 named as accepted for Calendar's identical surface, closed identically for both products
+/// by the same contract. A missing-or-wrong credential is refused with <c>401</c>.
+/// <see cref="HandleStartAsync"/> cross-checks the credential's own site id against
+/// <see cref="ModuleTaskStartRequest.SiteId"/>. <see cref="HandleReplyAsync"/> threads the credential's
+/// site id into <see cref="ReplyToFaqModuleTask.CredentialSiteId"/> instead of cross-checking it here -
+/// unlike Calendar's identical route, this module's own <c>Domain.FaqModuleTask</c> already carries a
+/// site id (<c>ModuleTaskContracts.ModuleTaskStartRequest.SiteId</c>'s own remarks), so the real check
+/// (against the task actually being replied to, not merely the request shape) belongs in the handler
+/// that loads that task - see <see cref="ReplyToFaqModuleTaskHandler"/>'s own remarks.</para>
 ///
 /// <para><b>200, not 201, on the <c>POST</c> that starts a task.</b> api-design.md's default is
 /// <c>201</c> with a <c>Location</c> for a creating <c>POST</c>; this route deviates for the identical
@@ -39,15 +51,33 @@ public static class ModuleTaskEndpoints
         return app;
     }
 
+    private const string CredentialHeaderName = "X-Ago-Module-Credential";
+
     private static async Task<IResult> HandleStartAsync(
         ModuleTaskStartRequest request,
         StartFaqModuleTaskHandler handler,
+        IModuleCallCredentialValidator credentialValidator,
+        IClock clock,
         HttpContext httpContext,
         CancellationToken cancellationToken)
     {
         if (request is null)
         {
             return Results.BadRequest();
+        }
+
+        var auth = credentialValidator.Validate(httpContext.Request.Headers[CredentialHeaderName], clock.UtcNow);
+        if (!auth.IsAuthenticated)
+        {
+            return Results.Unauthorized();
+        }
+
+        // `22-02`'s own sharpest claim: a credential valid for one site cannot name another in the
+        // body. auth.SiteId is only ever null in the accepting-but-warning rollout window (see
+        // IModuleCallCredentialValidator's own remarks), in which case there is nothing to check yet.
+        if (auth.SiteId is { } authenticatedSiteId && authenticatedSiteId != request.SiteId)
+        {
+            return Results.Unauthorized();
         }
 
         var result = await handler.HandleAsync(
@@ -67,6 +97,8 @@ public static class ModuleTaskEndpoints
         string externalTaskId,
         ModuleTaskReplyRequest request,
         ReplyToFaqModuleTaskHandler handler,
+        IModuleCallCredentialValidator credentialValidator,
+        IClock clock,
         HttpContext httpContext,
         CancellationToken cancellationToken)
     {
@@ -75,8 +107,17 @@ public static class ModuleTaskEndpoints
             return Results.BadRequest();
         }
 
+        var auth = credentialValidator.Validate(httpContext.Request.Headers[CredentialHeaderName], clock.UtcNow);
+        if (!auth.IsAuthenticated)
+        {
+            return Results.Unauthorized();
+        }
+
+        // Unlike Start, the wire body carries no site id to cross-check here - the credential's own
+        // site id is threaded into the command instead, and ReplyToFaqModuleTaskHandler checks it
+        // against the task actually being replied to. See this class's own remarks.
         var result = await handler.HandleAsync(
-            new ReplyToFaqModuleTask(externalTaskId, request.ChatTaskId, request.Kind, request.Value),
+            new ReplyToFaqModuleTask(externalTaskId, request.ChatTaskId, request.Kind, request.Value, auth.SiteId),
             cancellationToken);
 
         if (!result.IsSuccess)
